@@ -34,44 +34,50 @@ void AudioProcessor::resetState()
     gain = 1.0f;
 }
 
+template <typename NumericType, size_t MinMaxValue>
+struct GainLookup {
+  constexpr static auto generate_gains() {
+    constexpr auto total_size = (2 * MinMaxValue) + 1;
+    std::array<NumericType, total_size> g{};
+    constexpr auto middle_index = MinMaxValue;
+    g[middle_index] = 1.0f;
+    for (size_t i = 1; i <= (total_size / 2); ++i) {
+      auto y = size_t(1) << i;
+      auto upper_index = i + middle_index;
+      auto lower_index = middle_index - i;
+      auto as_t = static_cast<NumericType>(y);
+      g[upper_index] = as_t;
+      g[lower_index] = 1.0f / as_t;
+    }
+    return g;
+  }
+  constexpr static auto gains = generate_gains();
+
+  constexpr static auto from_bits(int bit) noexcept {
+    auto index = static_cast<uint32_t>(bit + static_cast<int>(MinMaxValue));
+    return gains[index];
+  }
+};
+
+static_assert(GainLookup<float, 16>::from_bits(-16) == 0.0000152587890625f);
+static_assert(GainLookup<float, 16>::from_bits(-15) == 0.000030517578125f);
+// ...
+static_assert(GainLookup<float, 16>::from_bits(0) == 1.0f);
+static_assert(GainLookup<float, 16>::from_bits(1) == 2.0f);
+static_assert(GainLookup<float, 16>::from_bits(2) == 4.0f);
+static_assert(GainLookup<float, 16>::from_bits(3) == 8.0f);
+static_assert(GainLookup<float, 16>::from_bits(4) == 16.0f);
+static_assert(GainLookup<float, 16>::from_bits(5) == 32.0f);
+static_assert(GainLookup<float, 16>::from_bits(6) == 64.0f);
+static_assert(GainLookup<float, 16>::from_bits(7) == 128.0f);
+static_assert(GainLookup<float, 16>::from_bits(8) == 256.0f);
+// ...
+static_assert(GainLookup<float, 16>::from_bits(16) == 65536.0f);
+
 void AudioProcessor::update()
 {
     int bits = apvts.getRawParameterValue("BitShift")->load();
-    switch (bits) {
-        case -16: gain = 0.0000152587890625; break;
-        case -15: gain = 0.000030517578125; break;
-        case -14: gain = 0.00006103515625; break;
-        case -13: gain = 0.0001220703125; break;
-        case -12: gain = 0.000244140625; break;
-        case -11: gain = 0.00048828125; break;
-        case -10: gain = 0.0009765625; break;
-        case -9: gain = 0.001953125; break;
-        case -8: gain = 0.00390625; break;
-        case -7: gain = 0.0078125; break;
-        case -6: gain = 0.015625; break;
-        case -5: gain = 0.03125; break;
-        case -4: gain = 0.0625; break;
-        case -3: gain = 0.125; break;
-        case -2: gain = 0.25; break;
-        case -1: gain = 0.5; break;
-        case 0: gain = 1.0; break;
-        case 1: gain = 2.0; break;
-        case 2: gain = 4.0; break;
-        case 3: gain = 8.0; break;
-        case 4: gain = 16.0; break;
-        case 5: gain = 32.0; break;
-        case 6: gain = 64.0; break;
-        case 7: gain = 128.0; break;
-        case 8: gain = 256.0; break;
-        case 9: gain = 512.0; break;
-        case 10: gain = 1024.0; break;
-        case 11: gain = 2048.0; break;
-        case 12: gain = 4096.0; break;
-        case 13: gain = 8192.0; break;
-        case 14: gain = 16384.0; break;
-        case 15: gain = 32768.0; break;
-        case 16: gain = 65536.0; break;
-    }
+    gain = GainLookup<float, 16>::from_bits(bits);
 }
 
 void AudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
